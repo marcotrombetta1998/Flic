@@ -7,16 +7,20 @@ import {
   TouchableOpacity,
   Dimensions,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from 'expo-vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
+import { usePaymentSheet } from '@stripe/stripe-react-native';
 import { useStore, CREDIT_PACKS } from '../../store';
 import { Colors, FontFamily, FontSize, Spacing, Radius, Shadow } from '../../constants/theme';
 import SpinWheel from '../../components/SpinWheel';
 import FanCard from '../../components/FanCard';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 const { width } = Dimensions.get('window');
 
@@ -97,21 +101,77 @@ export default function CreditsScreen() {
 
   const [showSpinWheel, setShowSpinWheel] = useState(false);
   const [mysteryRevealed, setMysteryRevealed] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+
+  const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
 
   const eurValue = (credits * 0.1).toFixed(2);
 
-  const handlePurchase = (pack: typeof CREDIT_PACKS[0]) => {
-    Alert.alert(
-      `Buy ${pack.credits + pack.bonus} credits`,
-      `€${pack.priceEur} for ${pack.credits} credits${pack.bonus > 0 ? ` + ${pack.bonus} bonus` : ''}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Purchase',
-          onPress: () => addCredits(pack.credits + pack.bonus),
+  const handlePurchase = async (pack: typeof CREDIT_PACKS[0]) => {
+    setPaymentLoading(true);
+    try {
+      // 1. Ask backend to create a PaymentIntent
+      const resp = await fetch(`${API_URL}/api/v1/credits/payment-intent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packId: pack.id }),
+      });
+      if (!resp.ok) throw new Error('Failed to create payment intent');
+      const { paymentIntent, ephemeralKey, customerId } = await resp.json();
+
+      // 2. Init the PaymentSheet (supports Apple Pay + Google Pay automatically)
+      const { error: initError } = await initPaymentSheet({
+        merchantDisplayName: 'FLIC',
+        customerId,
+        customerEphemeralKeySecret: ephemeralKey,
+        paymentIntentClientSecret: paymentIntent,
+        applePay: {
+          merchantCountryCode: 'IT',
+          cartItems: [
+            {
+              label: `${pack.name} — ${pack.credits + pack.bonus} credits`,
+              amount: pack.priceEur.toString(),
+              paymentType: 'Immediate',
+            },
+          ],
         },
-      ]
-    );
+        googlePay: {
+          merchantCountryCode: 'IT',
+          testEnv: true,
+          currencyCode: 'EUR',
+          label: `${pack.name} — ${pack.credits + pack.bonus} credits`,
+          amount: pack.priceEur.toString(),
+        },
+        style: 'alwaysDark',
+        primaryButtonLabel: `Pay €${pack.priceEur}`,
+      });
+      if (initError) throw new Error(initError.message);
+
+      // 3. Present the sheet
+      const { error: presentError } = await presentPaymentSheet();
+      if (presentError) {
+        if (presentError.code !== 'Canceled') {
+          Alert.alert('Payment failed', presentError.message);
+        }
+        return;
+      }
+
+      // 4. Payment succeeded — credits added server-side via Stripe webhook
+      addCredits(pack.credits + pack.bonus); // optimistic update
+      Alert.alert('', `+${pack.credits + pack.bonus} credits added to your wallet!`);
+    } catch (e: any) {
+      // Fallback for dev without backend
+      Alert.alert(
+        `Buy ${pack.credits + pack.bonus} credits`,
+        `€${pack.priceEur} — backend not configured, adding credits directly.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Add (dev)', onPress: () => addCredits(pack.credits + pack.bonus) },
+        ]
+      );
+    } finally {
+      setPaymentLoading(false);
+    }
   };
 
   const handleSpinWin = (prize: string) => {
@@ -186,6 +246,7 @@ export default function CreditsScreen() {
                   ]}
                   onPress={() => handlePurchase(pack)}
                   activeOpacity={0.85}
+                  disabled={paymentLoading}
                 >
                   {pack.badge && (
                     <View style={styles.packBadge}>
@@ -203,6 +264,16 @@ export default function CreditsScreen() {
                   <Text style={styles.packTotal}>
                     {pack.credits + pack.bonus} total
                   </Text>
+                  <View style={styles.packPayBadge}>
+                    <Ionicons
+                      name={Platform.OS === 'ios' ? 'logo-apple' : 'logo-google'}
+                      size={10}
+                      color={Colors.gray}
+                    />
+                    <Text style={styles.packPayText}>
+                      {Platform.OS === 'ios' ? 'Apple Pay' : 'Google Pay'}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               </MotiView>
             ))}
@@ -468,6 +539,21 @@ const styles = StyleSheet.create({
   packTotal: {
     fontFamily: FontFamily.dmSansRegular,
     fontSize: FontSize.xs,
+    color: Colors.gray,
+  },
+  packPayBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 6,
+    backgroundColor: Colors.dark2,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  packPayText: {
+    fontFamily: FontFamily.dmSansRegular,
+    fontSize: 9,
     color: Colors.gray,
   },
   txContainer: {

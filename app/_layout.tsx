@@ -10,7 +10,10 @@ import {
   JetBrainsMono_700Bold,
 } from '@expo-google-fonts/jetbrains-mono';
 import { View } from 'react-native';
+import { StripeProvider } from '@stripe/stripe-react-native';
 import { Colors } from '../constants/theme';
+
+const STRIPE_PK = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '';
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -32,6 +35,7 @@ export default function RootLayout() {
   }
 
   return (
+    <StripeProvider publishableKey={STRIPE_PK} merchantIdentifier="merchant.app.flic">
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.black }}>
       <StatusBar style="light" />
       <Stack
@@ -55,5 +59,6 @@ export default function RootLayout() {
         <Stack.Screen name="upload" />
       </Stack>
     </GestureHandlerRootView>
+    </StripeProvider>
   );
 }

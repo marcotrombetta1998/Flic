@@ -10,6 +10,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   FlatList,
+  Linking,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -26,8 +28,13 @@ import Animated, {
 } from 'react-native-reanimated';
 import { MotiView } from 'moti';
 import { router } from 'expo-router';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
 import { useStore } from '../store';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../constants/theme';
+
+WebBrowser.maybeCompleteAuthSession();
 
 const { width, height } = Dimensions.get('window');
 
@@ -240,15 +247,70 @@ function Slide3() {
   );
 }
 
+const PRIVACY_URL = 'https://flic.app/privacy';
+const TERMS_URL = 'https://flic.app/terms';
+
+const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? '';
+
 function SignupSlide() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [consentGiven, setConsentGiven] = useState(false);
+  const [loading, setLoading] = useState(false);
   const setHasOnboarded = useStore((s) => s.setHasOnboarded);
 
+  const [_googleRequest, googleResponse, promptGoogleAsync] = Google.useAuthRequest({
+    clientId: GOOGLE_CLIENT_ID,
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+  });
+
+  React.useEffect(() => {
+    if (googleResponse?.type === 'success') {
+      // Exchange googleResponse.authentication?.accessToken with backend
+      setHasOnboarded(true);
+      router.replace('/(tabs)');
+    }
+  }, [googleResponse]);
+
   const handleCreate = () => {
+    if (!consentGiven) return;
     setHasOnboarded(true);
     router.replace('/(tabs)');
+  };
+
+  const handleAppleSignIn = async () => {
+    if (!consentGiven) {
+      Alert.alert('Consent required', 'Please accept the Terms and Privacy Policy to continue.');
+      return;
+    }
+    try {
+      setLoading(true);
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      // credential.identityToken → send to backend for verification
+      setHasOnboarded(true);
+      router.replace('/(tabs)');
+    } catch (e: any) {
+      if (e.code !== 'ERR_REQUEST_CANCELED') {
+        Alert.alert('Apple Sign In failed', e.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (!consentGiven) {
+      Alert.alert('Consent required', 'Please accept the Terms and Privacy Policy to continue.');
+      return;
+    }
+    await promptGoogleAsync();
   };
 
   return (
@@ -321,10 +383,34 @@ function SignupSlide() {
               secureTextEntry
             />
           </View>
-          <TouchableOpacity style={styles.ctaButton} onPress={handleCreate} activeOpacity={0.85}>
-            <LinearGradient colors={[Colors.lime, '#00A060']} style={styles.ctaGradient}>
-              <Text style={styles.ctaText}>Create account</Text>
-              <Ionicons name="arrow-forward" size={18} color={Colors.black} />
+          <TouchableOpacity
+            style={styles.consentRow}
+            onPress={() => setConsentGiven(!consentGiven)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.checkbox, consentGiven && styles.checkboxChecked]}>
+              {consentGiven && <Ionicons name="checkmark" size={14} color={Colors.black} />}
+            </View>
+            <Text style={styles.consentText}>
+              I agree to the{' '}
+              <Text style={styles.consentLink} onPress={() => Linking.openURL(TERMS_URL)}>Terms of Service</Text>
+              {' '}and{' '}
+              <Text style={styles.consentLink} onPress={() => Linking.openURL(PRIVACY_URL)}>Privacy Policy</Text>
+              {'. '}FLIC processes your data to provide the service (Art. 6(1)(b) GDPR).
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.ctaButton, !consentGiven && styles.ctaDisabled]}
+            onPress={handleCreate}
+            activeOpacity={0.85}
+            disabled={!consentGiven}
+          >
+            <LinearGradient
+              colors={consentGiven ? [Colors.lime, '#00A060'] : [Colors.dark2, Colors.dark2]}
+              style={styles.ctaGradient}
+            >
+              <Text style={[styles.ctaText, !consentGiven && { color: Colors.gray }]}>Create account</Text>
+              <Ionicons name="arrow-forward" size={18} color={consentGiven ? Colors.black : Colors.gray} />
             </LinearGradient>
           </TouchableOpacity>
           <View style={styles.dividerRow}>
@@ -333,11 +419,20 @@ function SignupSlide() {
             <View style={styles.dividerLine} />
           </View>
           <View style={styles.socialRow}>
-            <TouchableOpacity style={styles.socialButton}>
-              <Ionicons name="logo-apple" size={20} color={Colors.white} />
-              <Text style={styles.socialButtonText}>Apple</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.socialButton, { marginLeft: 12 }]}>
+            {Platform.OS === 'ios' && (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                cornerRadius={Radius.lg}
+                style={[styles.socialButton, styles.appleButton]}
+                onPress={handleAppleSignIn}
+              />
+            )}
+            <TouchableOpacity
+              style={[styles.socialButton, Platform.OS === 'ios' && { marginLeft: 12 }]}
+              onPress={handleGoogleSignIn}
+              activeOpacity={0.85}
+            >
               <Ionicons name="logo-google" size={20} color={Colors.white} />
               <Text style={styles.socialButtonText}>Google</Text>
             </TouchableOpacity>
@@ -644,10 +739,45 @@ const styles = StyleSheet.create({
     fontSize: FontSize.base,
     color: Colors.white,
   },
+  consentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginTop: 8,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+    flexShrink: 0,
+  },
+  checkboxChecked: {
+    backgroundColor: Colors.lime,
+    borderColor: Colors.lime,
+  },
+  consentText: {
+    flex: 1,
+    fontFamily: FontFamily.dmSansRegular,
+    fontSize: FontSize.xs,
+    color: Colors.gray,
+    lineHeight: 18,
+  },
+  consentLink: {
+    color: Colors.lime,
+    textDecorationLine: 'underline',
+  },
   ctaButton: {
     marginTop: 8,
     borderRadius: Radius.lg,
     overflow: 'hidden',
+  },
+  ctaDisabled: {
+    opacity: 0.6,
   },
   ctaGradient: {
     flexDirection: 'row',
@@ -691,6 +821,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     height: 52,
     gap: 8,
+  },
+  appleButton: {
+    height: 52,
   },
   socialButtonText: {
     fontFamily: FontFamily.dmSansMedium,
