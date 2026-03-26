@@ -31,10 +31,13 @@ async function bootstrap() {
   const app = Fastify({ logger: false, trustProxy: true });
 
   // Plugins
-  await app.register(cors, { origin: process.env.APP_URL ?? '*', credentials: true });
+  if (!process.env.APP_URL) throw new Error('Missing APP_URL env var');
+  if (!process.env.JWT_SECRET) throw new Error('Missing JWT_SECRET env var');
+
+  await app.register(cors, { origin: process.env.APP_URL, credentials: true });
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(rateLimit, { max: 100, timeWindow: '1 minute', redis, keyGenerator: (req) => (req.user as { id?: string } | undefined)?.id ?? req.ip });
-  await app.register(jwt, { secret: process.env.JWT_SECRET ?? 'change-me-in-production-32-chars!!' });
+  await app.register(jwt, { secret: process.env.JWT_SECRET });
   await app.register(multipart, { limits: { fileSize: 500 * 1024 * 1024 } }); // 500MB
 
   // JWT decorator

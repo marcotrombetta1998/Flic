@@ -23,6 +23,48 @@ export async function creditRoutes(fastify: FastifyInstance) {
     return result;
   });
 
+  // Mobile PaymentSheet: create PaymentIntent + ephemeral key for Apple Pay / Google Pay
+  fastify.post('/payment-intent', { onRequest: [requireAuth] }, async (request, reply) => {
+    const { packId } = z.object({ packId: z.string().uuid() }).parse(request.body);
+    const { id: userId, email } = request.user as { id: string; email: string };
+
+    const packs = await getPacks();
+    const pack = packs.find((p) => p.id === packId);
+    if (!pack) return reply.code(404).send({ error: 'Pack not found' });
+
+    // Get or create Stripe customer
+    let customerId: string;
+    const existing = await stripe.customers.list({ email, limit: 1 });
+    if (existing.data.length > 0) {
+      customerId = existing.data[0]!.id;
+    } else {
+      const customer = await stripe.customers.create({ email, metadata: { userId } });
+      customerId = customer.id;
+    }
+
+    // Ephemeral key for PaymentSheet
+    const ephemeralKey = await stripe.ephemeralKeys.create(
+      { customer: customerId },
+      { apiVersion: '2024-06-20' }
+    );
+
+    // PaymentIntent in EUR cents
+    const amountCents = Math.round(parseFloat(pack.priceEur as string) * 100);
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: 'eur',
+      customer: customerId,
+      metadata: { userId, packId },
+      automatic_payment_methods: { enabled: true },
+    });
+
+    return {
+      paymentIntent: paymentIntent.client_secret,
+      ephemeralKey: ephemeralKey.secret,
+      customerId,
+    };
+  });
+
   fastify.post('/webhook/stripe', {
     config: { rawBody: true },
   }, async (request, reply) => {

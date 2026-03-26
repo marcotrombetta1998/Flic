@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client';
-import { users } from '../db/schema';
+import { users, creditTransactions, botConversations, comments, userFanCards } from '../db/schema';
 import { supabase } from '../lib/supabase';
 
 const registerSchema = z.object({
@@ -59,10 +59,59 @@ export async function authRoutes(fastify: FastifyInstance) {
     return user;
   });
 
+  // Social auth: exchange Supabase OAuth session token for FLIC JWT
+  fastify.post('/social', async (request, reply) => {
+    const { provider, accessToken } = z.object({
+      provider: z.enum(['apple', 'google']),
+      accessToken: z.string(),
+    }).parse(request.body);
+
+    const { data, error } = await supabase.auth.getUser(accessToken);
+    if (error || !data.user) return reply.code(401).send({ error: 'Invalid social token' });
+
+    const supaUser = data.user;
+    let [user] = await db.select().from(users).where(eq(users.email, supaUser.email!));
+    if (!user) {
+      const displayName = supaUser.user_metadata?.full_name ?? supaUser.email!.split('@')[0];
+      const username = `${provider}_${supaUser.id.replace(/-/g, '').slice(0, 16)}`;
+      [user] = await db.insert(users).values({
+        id: supaUser.id,
+        email: supaUser.email!,
+        username,
+        displayName,
+        avatarUrl: supaUser.user_metadata?.avatar_url ?? null,
+      }).returning();
+    }
+
+    const token = fastify.jwt.sign({ id: user!.id, email: user!.email, role: user!.role });
+    return { token, user };
+  });
+
   fastify.delete('/me/data', { onRequest: [fastify.authenticate] }, async (request, reply) => {
     const { id } = request.user as { id: string };
     await supabase.auth.admin.deleteUser(id);
     await db.delete(users).where(eq(users.id, id));
     return reply.code(204).send();
+  });
+
+  // GDPR Art. 15 — Subject Access Request
+  fastify.get('/me/export', { onRequest: [fastify.authenticate] }, async (request) => {
+    const { id } = request.user as { id: string };
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    const transactions = await db.select().from(creditTransactions).where(eq(creditTransactions.userId, id));
+    const conversations = await db.select().from(botConversations).where(eq(botConversations.userId, id));
+    const userComments = await db.select().from(comments).where(eq(comments.userId, id));
+    const fanCardOwnership = await db.select().from(userFanCards).where(eq(userFanCards.userId, id));
+    return {
+      exportedAt: new Date().toISOString(),
+      subject: 'GDPR Art. 15 Subject Access Request — FLIC',
+      data: {
+        profile: user,
+        creditTransactions: transactions,
+        botConversations: conversations,
+        comments: userComments,
+        fanCards: fanCardOwnership,
+      },
+    };
   });
 }

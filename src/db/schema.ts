@@ -192,9 +192,9 @@ export const cpaOffers = pgTable('cpa_offers', {
 
 export const cpaEvents = pgTable('cpa_events', {
   id:             uuid('id').primaryKey().defaultRandom(),
-  offerId:        uuid('offer_id').notNull().references(() => cpaOffers.id),
-  userId:         uuid('user_id').notNull().references(() => users.id),
-  videoId:        uuid('video_id').notNull().references(() => videos.id),
+  offerId:        uuid('offer_id').notNull().references(() => cpaOffers.id, { onDelete: 'cascade' }),
+  userId:         uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  videoId:        uuid('video_id').notNull().references(() => videos.id, { onDelete: 'cascade' }),
   conversationId: uuid('conversation_id').references(() => botConversations.id),
   eventType:      cpaEventTypeEnum('event_type').notNull(),
   revenueEur:     decimal('revenue_eur', { precision: 8, scale: 2 }),
