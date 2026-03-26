@@ -814,9 +814,9 @@ type AppStore = UserState &
 export const useStore = create<AppStore>((set, get) => ({
   // User
   userId: 'u1',
-  name: 'Marco Trombetta',
-  username: '@marcotrombetta',
-  avatar: 'https://i.pravatar.cc/150?img=52',
+  name: 'Demo User',
+  username: '@demo_user',
+  avatar: 'https://i.pravatar.cc/150?img=12',
   isCreator: true,
   hasOnboarded: false,
   setHasOnboarded: (v) => set({ hasOnboarded: v }),
