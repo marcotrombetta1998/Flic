@@ -10,6 +10,7 @@ import {
   JetBrainsMono_700Bold,
 } from '@expo-google-fonts/jetbrains-mono';
 import { View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { Colors } from '../constants/theme';
 
@@ -35,6 +36,7 @@ export default function RootLayout() {
   }
 
   return (
+    <SafeAreaProvider>
     <StripeProvider publishableKey={STRIPE_PK} merchantIdentifier="merchant.app.flic">
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.black }}>
       <StatusBar style="light" />
@@ -60,5 +62,6 @@ export default function RootLayout() {
       </Stack>
     </GestureHandlerRootView>
     </StripeProvider>
+    </SafeAreaProvider>
   );
 }

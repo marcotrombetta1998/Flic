@@ -13,7 +13,7 @@ import {
   Linking,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from 'expo-vector-icons';
 import Animated, {
@@ -655,7 +655,6 @@ const styles = StyleSheet.create({
     height: 100,
     top: 0,
     left: 100,
-    transformOrigin: '0 100%' as any,
   },
   wheelCenter: {
     position: 'absolute',

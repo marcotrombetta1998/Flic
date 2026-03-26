@@ -12,7 +12,7 @@ import {
   Dimensions,
   FlatList,
 } from 'react-native';
-import { SafeAreaView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from 'expo-vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,9 +34,9 @@ const VIDEO_HEIGHT = height * 0.45;
 type TabType = 'chat' | 'details' | 'more';
 
 const QUICK_SUGGESTIONS: Array<{ emoji: string; label: string }> = [
-  { emoji: '❓', label: 'What's the main takeaway?' },
+  { emoji: '❓', label: "What's the main takeaway?" },
   { emoji: '📍', label: 'Give me exact locations' },
-  { emoji: '💰', label: 'What's the cost breakdown?' },
+  { emoji: '💰', label: "What's the cost breakdown?" },
   { emoji: '🗓️', label: 'Best time to try this?' },
   { emoji: '🔗', label: 'Any links or resources?' },
 ];

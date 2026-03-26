@@ -104,7 +104,6 @@ export default function SpinWheel({ onWin }: SpinWheelProps) {
                   width: WHEEL_SIZE / 2,
                   height: WHEEL_SIZE / 2,
                   borderTopRightRadius: WHEEL_SIZE / 2,
-                  transformOrigin: 'bottom left' as any,
                 },
               ]}
             />
