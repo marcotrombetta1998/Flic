@@ -32,7 +32,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       username: body.username,
       displayName: body.displayName,
     }).returning();
-    const token = fastify.jwt.sign({ id: user!.id, email: user!.email, role: user!.role });
+    const token = fastify.jwt.sign({ id: user!.id, email: user!.email, role: user!.role }, { expiresIn: '24h' });
     return reply.code(201).send({ token, user });
   });
 
@@ -42,7 +42,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     if (error) return reply.code(401).send({ error: 'Invalid credentials' });
     const [user] = await db.select().from(users).where(eq(users.email, body.email));
     if (!user) return reply.code(404).send({ error: 'User not found' });
-    const token = fastify.jwt.sign({ id: user.id, email: user.email, role: user.role });
+    const token = fastify.jwt.sign({ id: user.id, email: user.email, role: user.role }, { expiresIn: '24h' });
     return { token, user };
   });
 
@@ -83,7 +83,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       }).returning();
     }
 
-    const token = fastify.jwt.sign({ id: user!.id, email: user!.email, role: user!.role });
+    const token = fastify.jwt.sign({ id: user!.id, email: user!.email, role: user!.role }, { expiresIn: '24h' });
     return { token, user };
   });
 

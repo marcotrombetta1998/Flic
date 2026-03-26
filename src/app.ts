@@ -51,7 +51,10 @@ async function bootstrap() {
       return reply.code(400).send({ error: 'ValidationError', issues: error.issues });
     }
     logger.error({ err: error.message, stack: error.stack }, 'Unhandled error');
-    return reply.code(error.statusCode ?? 500).send({ error: error.message ?? 'Internal Server Error' });
+    // MED-05: never leak internal error messages for 5xx responses
+    const statusCode = error.statusCode ?? 500;
+    const message = statusCode < 500 ? (error.message ?? 'Bad Request') : 'Internal Server Error';
+    return reply.code(statusCode).send({ error: message });
   });
 
   // Routes

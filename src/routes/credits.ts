@@ -88,7 +88,7 @@ export async function creditRoutes(fastify: FastifyInstance) {
 
   fastify.get('/transactions', { onRequest: [requireAuth] }, async (request) => {
     const { id } = request.user as { id: string };
-    const { limit } = z.object({ limit: z.coerce.number().default(20) }).parse(request.query);
+    const { limit } = z.object({ limit: z.coerce.number().min(1).max(100).default(20) }).parse(request.query);
     return getTransactions(id, limit);
   });
 

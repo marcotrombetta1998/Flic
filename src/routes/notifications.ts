@@ -6,7 +6,7 @@ import { getNotifications, markAsRead } from '../services/notifications';
 export async function notificationRoutes(fastify: FastifyInstance) {
   fastify.get('/', { onRequest: [requireAuth] }, async (request) => {
     const { id } = request.user as { id: string };
-    const { limit } = z.object({ limit: z.coerce.number().default(30) }).parse(request.query);
+    const { limit } = z.object({ limit: z.coerce.number().min(1).max(100).default(30) }).parse(request.query);
     return getNotifications(id, limit);
   });
 

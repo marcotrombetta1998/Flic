@@ -30,7 +30,14 @@ export async function subscriptionRoutes(fastify: FastifyInstance) {
 
   fastify.delete('/:id', { onRequest: [requireAuth] }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    await db.update(creatorSubscriptions).set({ status: 'cancelled' }).where(eq(creatorSubscriptions.id, id));
+    const { id: userId } = request.user as { id: string };
+    // HIGH-02: scope cancellation to the authenticated user's own subscriptions
+    const result = await db
+      .update(creatorSubscriptions)
+      .set({ status: 'cancelled' })
+      .where(and(eq(creatorSubscriptions.id, id), eq(creatorSubscriptions.userId, userId)))
+      .returning({ id: creatorSubscriptions.id });
+    if (result.length === 0) return reply.code(404).send({ error: 'Subscription not found' });
     return reply.code(204).send();
   });
 }

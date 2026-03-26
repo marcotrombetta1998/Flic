@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { eq, gte, sum, count } from 'drizzle-orm';
+import { eq, gte, sum, count, and } from 'drizzle-orm';
 import { db } from '../db/client';
 import { videos, creditTransactions } from '../db/schema';
 import { requireCreator } from '../middleware/auth';
@@ -19,8 +19,9 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
   fastify.get('/analytics', { onRequest: [requireCreator] }, async (request) => {
     const { id: creatorId } = request.user as { id: string };
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    // HIGH-06: scope to this creator's earnings only
     const txs = await db.select().from(creditTransactions).where(
-      eq(creditTransactions.type, 'creator_earning')
+      and(eq(creditTransactions.type, 'creator_earning'), eq(creditTransactions.userId, creatorId))
     );
     // Group by day (simplified)
     const byDay: Record<string, number> = {};

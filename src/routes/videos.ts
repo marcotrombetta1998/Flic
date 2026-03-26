@@ -1,8 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, lt, and } from 'drizzle-orm';
+import { eq, desc, lt, and, sql } from 'drizzle-orm';
 import { db } from '../db/client';
 import { videos } from '../db/schema';
+
+// CRIT-05: Only allow video URLs from trusted storage domains
+const ALLOWED_VIDEO_HOSTS = (process.env.ALLOWED_VIDEO_HOSTS ?? 'supabase.co,amazonaws.com,cloudfront.net').split(',');
+function isAllowedVideoUrl(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return ALLOWED_VIDEO_HOSTS.some((h) => hostname === h || hostname.endsWith(`.${h}`));
+  } catch { return false; }
+}
 import { requireAuth, requireCreator } from '../middleware/auth';
 import { deductCredits } from '../services/credits';
 import { checkSurgePrice } from '../services/gamification/surge-inverse';
@@ -43,18 +52,29 @@ export async function videoRoutes(fastify: FastifyInstance) {
     return db.select().from(videos).where(and(...conditions)).orderBy(desc(videos.flicCount)).limit(10);
   });
 
-  // GET /videos/:id
+  // GET /videos/:id — strip sensitive fields from unauthenticated response (MED-11)
   fastify.get('/:id', async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const [video] = await db.select().from(videos).where(eq(videos.id, id));
+    const [video] = await db
+      .select({
+        id: videos.id, creatorId: videos.creatorId, title: videos.title, description: videos.description,
+        vertical: videos.vertical, videoUrl: videos.videoUrl, thumbnailUrl: videos.thumbnailUrl,
+        durationSeconds: videos.durationSeconds, unlockCostCredits: videos.unlockCostCredits,
+        isPublished: videos.isPublished, viewCount: videos.viewCount, flicCount: videos.flicCount,
+        unlockCount: videos.unlockCount, replicaCount: videos.replicaCount, aiProcessed: videos.aiProcessed,
+        createdAt: videos.createdAt, publishedAt: videos.publishedAt,
+        // botSystemPrompt, transcript, aiData intentionally excluded — returned only after unlock
+      })
+      .from(videos)
+      .where(eq(videos.id, id));
     if (!video) return reply.code(404).send({ error: 'Video not found' });
     return video;
   });
 
-  // POST /videos/:id/view
-  fastify.post('/:id/view', async (request) => {
+  // POST /videos/:id/view — atomic increment (HIGH-09)
+  fastify.post('/:id/view', { onRequest: [requireAuth] }, async (request) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    await db.update(videos).set({ viewCount: (await db.select({ v: videos.viewCount }).from(videos).where(eq(videos.id, id)))[0]!.v + 1 }).where(eq(videos.id, id));
+    await db.update(videos).set({ viewCount: sql`${videos.viewCount} + 1` }).where(eq(videos.id, id));
     return { ok: true };
   });
 
@@ -95,7 +115,7 @@ export async function videoRoutes(fastify: FastifyInstance) {
       title:       z.string().min(3).max(200),
       description: z.string().optional(),
       vertical:    z.enum(['travel','food','fitness','finance','music','interior','sport']),
-      videoUrl:    z.string().url(),
+      videoUrl:    z.string().url().refine(isAllowedVideoUrl, { message: 'videoUrl must be from an allowed storage domain' }),
       durationSeconds: z.number().int().positive(),
       unlockCostCredits: z.number().int().min(1).max(100).default(1),
     }).parse(request.body);
@@ -114,22 +134,30 @@ export async function videoRoutes(fastify: FastifyInstance) {
     return reply.code(201).send(video);
   });
 
-  // PATCH /videos/:id
+  // PATCH /videos/:id — only the video's creator may update (HIGH-01)
   fastify.patch('/:id', { onRequest: [requireCreator] }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const { id: creatorId } = request.user as { id: string };
     const body = z.object({
       title: z.string().optional(),
       description: z.string().optional(),
       isPublished: z.boolean().optional(),
     }).parse(request.body);
-    const [video] = await db.update(videos).set(body).where(eq(videos.id, id)).returning();
+    const [video] = await db
+      .update(videos)
+      .set(body)
+      .where(and(eq(videos.id, id), eq(videos.creatorId, creatorId)))
+      .returning();
+    if (!video) return reply.code(404).send({ error: 'Video not found or access denied' });
     return video;
   });
 
-  // DELETE /videos/:id
+  // DELETE /videos/:id — only the video's creator may delete (HIGH-01)
   fastify.delete('/:id', { onRequest: [requireCreator] }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    await db.delete(videos).where(eq(videos.id, id));
+    const { id: creatorId } = request.user as { id: string };
+    const result = await db.delete(videos).where(and(eq(videos.id, id), eq(videos.creatorId, creatorId))).returning({ id: videos.id });
+    if (result.length === 0) return reply.code(404).send({ error: 'Video not found or access denied' });
     return reply.code(204).send();
   });
 }

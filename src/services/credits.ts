@@ -1,6 +1,6 @@
 import { eq, desc, and } from 'drizzle-orm';
 import { db } from '../db/client';
-import { users, creditTransactions, creditPacks } from '../db/schema';
+import { users, creditTransactions, creditPacks, spinResults } from '../db/schema';
 import { stripe } from '../lib/stripe';
 import { createNotification } from './notifications';
 import type { InferSelectModel } from 'drizzle-orm';
@@ -88,14 +88,27 @@ export async function fulfillCreditPurchase(paymentIntentId: string): Promise<vo
   const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
   if (pi.status !== 'succeeded') return;
 
+  // CRIT-04: idempotency check — prevent double-spend on Stripe webhook retries
+  const existing = await db
+    .select({ id: creditTransactions.id })
+    .from(creditTransactions)
+    .where(eq(creditTransactions.stripePaymentId, paymentIntentId))
+    .limit(1);
+  if (existing.length > 0) return; // already fulfilled
+
   const { userId, packId, creditsBase, creditsBonus } = pi.metadata as Record<string, string>;
   const totalCredits = parseInt(creditsBase) + parseInt(creditsBonus);
 
-  await addCredits(userId, totalCredits, 'purchase', packId, {
-    stripePaymentId: paymentIntentId,
-    pack: packId,
-    baseCredits: parseInt(creditsBase),
-    bonusCredits: parseInt(creditsBonus),
+  await db.transaction(async (tx) => {
+    const [user] = await tx.select({ balance: users.creditsBalance }).from(users).where(eq(users.id, userId));
+    if (!user) throw new Error('User not found');
+    await tx.update(users).set({ creditsBalance: user.balance + totalCredits, updatedAt: new Date() }).where(eq(users.id, userId));
+    await tx.insert(creditTransactions).values({
+      userId, amount: totalCredits, type: 'purchase',
+      referenceId: packId,
+      stripePaymentId: paymentIntentId,
+      metadata: { pack: packId, baseCredits: parseInt(creditsBase), bonusCredits: parseInt(creditsBonus) },
+    });
   });
 
   await createNotification(userId, 'earning', '⚡ Credits added!', `+${totalCredits} credits from your purchase.`, {});
