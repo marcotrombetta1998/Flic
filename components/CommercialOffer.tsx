@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from 'expo-vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontFamily, FontSize, Radius } from '../constants/theme';
 import type { CommercialOffer as CommercialOfferType } from '../store';
 

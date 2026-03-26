@@ -8,7 +8,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from 'expo-vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { MotiView } from 'moti';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../constants/theme';
